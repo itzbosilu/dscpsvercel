@@ -1,0 +1,6 @@
+{
+  "name": "DSCPS Club Portal",
+  "description": "Official club platform of the Defence Service College Photographic Society (DSCPS) with member profile registries, dynamic role assignments, customizable layout, and admin controls.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
