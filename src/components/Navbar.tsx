@@ -32,7 +32,7 @@ export default function Navbar({ currentTab, setCurrentTab, onOpenAuth }: Navbar
     });
   };
 
-  const isAdmin = currentUser?.roles.some(r => r === 'President' || r === 'Secretary');
+  const isAdmin = currentUser?.roles.some(r => r === 'President' || r === 'Secretary' || r === 'Exec. Member');
 
   const links = [
     { id: 'home', label: 'Home', icon: Compass, requiredPrivilege: null },

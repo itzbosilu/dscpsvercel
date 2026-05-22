@@ -41,6 +41,8 @@ export default function AdminDashboard() {
     deleteBoardMember,
     addAnnouncement,
     deleteAnnouncement,
+    adminCreateUserProfile,
+    adminUpdateUserProfile,
   } = useDSCPS();
 
   // Active dashboard view control
@@ -89,6 +91,18 @@ export default function AdminDashboard() {
   // MEMBERS MANAGEMENT TAB STATES
   const [memberSearch, setMemberSearch] = useState('');
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
+
+  // Custom Create/Edit Student States
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
+  const [userFullName, setUserFullName] = useState('');
+  const [userAdmissionNo, setUserAdmissionNo] = useState('');
+  const [userJoinedYear, setUserJoinedYear] = useState('2026');
+  const [userGender, setUserGender] = useState<'Male' | 'Female' | 'Other' | 'Prefer not to say'>('Prefer not to say');
+  const [userBio, setUserBio] = useState('');
+  const [userAvatarUrl, setUserAvatarUrl] = useState('');
+  const [selectedUserRoles, setSelectedUserRoles] = useState<RoleName[]>([]);
+  const [userEditTab, setUserEditTab] = useState<'roles' | 'details'>('roles');
 
   // PRIVILEGES TAB STATES
   const [hoveredRole, setHoveredRole] = useState<RoleName | null>(null);
@@ -202,17 +216,108 @@ export default function AdminDashboard() {
     u.admissionNo.toLowerCase().includes(memberSearch.toLowerCase())
   );
 
+  const handleSelectUser = (u: UserProfile) => {
+    setIsCreatingUser(false);
+    setSelectedUser(u);
+    setUserFullName(u.fullName);
+    setUserEmail(u.email);
+    setUserAdmissionNo(u.admissionNo);
+    setUserJoinedYear(u.joinedYear || '2026');
+    setUserGender(u.gender || 'Prefer not to say');
+    setUserBio(u.bio || '');
+    setUserAvatarUrl(u.avatarUrl || '');
+    setSelectedUserRoles(u.roles || []);
+    setUserEditTab('roles');
+  };
+
+  const handleStartCreateUser = () => {
+    setIsCreatingUser(true);
+    setSelectedUser(null);
+    setUserFullName('');
+    setUserEmail('');
+    setUserAdmissionNo('');
+    setUserJoinedYear('2026');
+    setUserGender('Prefer not to say');
+    setUserBio('');
+    setUserAvatarUrl('');
+    setSelectedUserRoles(['Student', 'Member']);
+    setUserEditTab('details');
+  };
+
+  const handleSaveUser = () => {
+    if (!userFullName.trim() || !userEmail.trim()) {
+      alert('Full Name and Email are required.');
+      return;
+    }
+
+    if (isCreatingUser) {
+      const cleanEmail = userEmail.toLowerCase().trim();
+      if (users.some(u => u.email.toLowerCase() === cleanEmail)) {
+        alert('An account with this email already exists.');
+        return;
+      }
+      const newUid = 'dsc-user-man-' + Math.random().toString(36).substring(2, 9);
+      adminCreateUserProfile({
+        uid: newUid,
+        email: cleanEmail,
+        fullName: userFullName.trim(),
+        admissionNo: userAdmissionNo.trim() || 'DSC-' + Math.floor(1000 + Math.random() * 9000),
+        joinedYear: userJoinedYear.trim() || '2026',
+        gender: userGender,
+        bio: userBio.trim() || `Fresh student member of the DSCPS photographic squad. Ready to learn and capture!`,
+        avatarUrl: userAvatarUrl.trim(),
+        roles: selectedUserRoles.length > 0 ? selectedUserRoles : ['Student', 'Member'],
+      });
+      triggerSuccess(`Registered new student account: ${userFullName}`);
+      setIsCreatingUser(false);
+    } else if (selectedUser) {
+      const cleanEmail = userEmail.toLowerCase().trim();
+      if (cleanEmail !== selectedUser.email.toLowerCase() && users.some(u => u.email.toLowerCase() === cleanEmail)) {
+        alert('An account with this email already exists.');
+        return;
+      }
+      adminUpdateUserProfile(selectedUser.uid, {
+        email: cleanEmail,
+        fullName: userFullName.trim(),
+        admissionNo: userAdmissionNo.trim(),
+        joinedYear: userJoinedYear.trim(),
+        gender: userGender,
+        bio: userBio.trim(),
+        avatarUrl: userAvatarUrl.trim(),
+        roles: selectedUserRoles.length > 0 ? selectedUserRoles : ['Student', 'Member'],
+      });
+      triggerSuccess(`Updated details for: ${userFullName}`);
+      
+      setSelectedUser({
+        ...selectedUser,
+        email: cleanEmail,
+        fullName: userFullName.trim(),
+        admissionNo: userAdmissionNo.trim(),
+        joinedYear: userJoinedYear.trim(),
+        gender: userGender,
+        bio: userBio.trim(),
+        avatarUrl: userAvatarUrl.trim(),
+        roles: selectedUserRoles.length > 0 ? selectedUserRoles : ['Student', 'Member'],
+      });
+    }
+  };
+
   const handleToggleMemberRole = (role: RoleName) => {
-    if (!selectedUser) return;
-    const hasRole = selectedUser.roles.includes(role);
-    const newRoles = hasRole 
-      ? selectedUser.roles.filter(r => r !== role)
-      : [...selectedUser.roles, role];
-    
-    // Auto sync state in local mock selection
-    selectedUser.roles = newRoles;
-    updateUserRoles(selectedUser.uid, newRoles);
-    triggerSuccess(`Roles updated for student: ${selectedUser.fullName}`);
+    const isCreating = isCreatingUser;
+    const activeUser = selectedUser;
+    if (isCreating || activeUser) {
+      const hasRole = selectedUserRoles.includes(role);
+      const newRoles = hasRole 
+        ? selectedUserRoles.filter(r => r !== role)
+        : [...selectedUserRoles, role];
+      setSelectedUserRoles(newRoles);
+      
+      if (activeUser) {
+        activeUser.roles = newRoles;
+        updateUserRoles(activeUser.uid, newRoles);
+        triggerSuccess(`Roles updated for student: ${activeUser.fullName}`);
+      }
+    }
   };
 
   const handleToggleRolePrivilegeCheckbox = (role: RoleName, privKey: PrivilegeKey) => {
@@ -336,9 +441,25 @@ export default function AdminDashboard() {
           {/* TAB 1: MEMBERS ASSIGNMENTS ROLE PANEL */}
           {activeSubTab === 'members' && (
             <div id="subtab-members-workspace" className="animate-fade-in font-sans">
-              <div className="mb-6 text-left">
-                <h3 className="font-display font-bold text-lg text-white">Student Roster Configuration</h3>
-                <p className="text-xs text-neutral-400 mt-1">Decide which student profile holds one or multiple society roles. Admins have immediate clearance overrides.</p>
+              <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 text-left">
+                <div>
+                  <h3 className="font-display font-bold text-lg text-white">Student Roster Configuration</h3>
+                  <p className="text-xs text-neutral-400 mt-1">Decide which student profile holds one or multiple society roles. Admins have immediate clearance overrides.</p>
+                </div>
+                <div className="shrink-0">
+                  <button
+                    id="btn-create-student-account"
+                    onClick={handleStartCreateUser}
+                    className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      isCreatingUser
+                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                        : 'bg-amber-500 hover:bg-amber-400 text-neutral-950 hover:scale-[1.02]'
+                    }`}
+                  >
+                    <Plus size={14} />
+                    <span>Create Student Account</span>
+                  </button>
+                </div>
               </div>
 
               {/* Search Bar */}
@@ -357,17 +478,17 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
                 
                 {/* User List scroll container */}
-                <div className="md:col-span-6 space-y-2 max-h-96 overflow-y-auto pr-1 text-left font-sans">
+                <div className="md:col-span-6 space-y-2 max-h-[460px] overflow-y-auto pr-1 text-left font-sans">
                   {filteredUsers.length === 0 ? (
                     <div className="text-center py-6 text-xs text-neutral-500 font-mono">No matching student registros found.</div>
                   ) : (
                     filteredUsers.map(u => {
-                      const isTargetSelected = selectedUser?.uid === u.uid;
+                      const isTargetSelected = !isCreatingUser && selectedUser?.uid === u.uid;
                       const isMainAdmin = u.uid === 'admin-1' || u.email === 'bosiluniduwara@gmail.com';
                       return (
                         <button
                           key={u.uid}
-                          onClick={() => setSelectedUser(u)}
+                          onClick={() => handleSelectUser(u)}
                           className={`w-full text-left p-3 rounded-xl border transition-all cursor-pointer ${
                             isTargetSelected 
                               ? 'bg-neutral-900 border-amber-500/40 text-white' 
@@ -401,56 +522,320 @@ export default function AdminDashboard() {
                       );
                     })
                   )}
-                </div>
-
-                {/* Role Toggling Area */}
-                <div className="md:col-span-6 p-4 md:p-5 bg-neutral-900/30 border border-neutral-900 rounded-2xl">
-                  {selectedUser ? (
-                    <div>
-                      <div className="border-b border-neutral-800 pb-3 mb-4 text-center sm:text-left">
-                        <p className="text-[10px] uppercase font-mono text-amber-500 font-bold mb-1">Set Roster Roles</p>
-                        <h4 className="font-display font-bold text-sm text-white break-all leading-snug">{selectedUser.fullName}</h4>
-                        <p className="text-[10px] text-neutral-500 font-mono">Admission: {selectedUser.admissionNo}</p>
+                </div>                {/* Role Toggling & User Details Editing Area */}
+                <div className="md:col-span-6 p-4 md:p-5 bg-neutral-900/30 border border-neutral-900 rounded-2xl relative">
+                  {isCreatingUser ? (
+                    <div className="animate-fade-in text-left">
+                      <div className="border-b border-neutral-800 pb-3 mb-4 flex justify-between items-center">
+                        <div>
+                          <p className="text-[10px] uppercase font-mono text-amber-500 font-bold mb-1">Academy Register</p>
+                          <h4 className="font-display font-bold text-sm text-white">Create Student Account</h4>
+                        </div>
+                        <button 
+                          onClick={() => setIsCreatingUser(false)}
+                          className="text-[10px] uppercase font-mono text-neutral-500 hover:text-white px-2 py-1 rounded border border-neutral-800 hover:bg-neutral-900 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
                       </div>
 
-                      <p className="text-[10px] text-neutral-400 leading-relaxed font-sans mb-3">
-                        Check or uncheck the checkboxes below to edit assigned duties. Multiple roles are allowed. Role updates synchronize instantly.
-                      </p>
+                      <div className="space-y-3 font-sans text-xs">
+                        <div>
+                          <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Full Name *</label>
+                          <input
+                            type="text"
+                            value={userFullName}
+                            onChange={e => setUserFullName(e.target.value)}
+                            placeholder="e.g. Randika Perera"
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
 
-                      {/* Checklist grid */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 h-60 overflow-y-auto pr-1">
-                        {AVAILABLE_ROLES.map(role => {
-                          const hasRole = selectedUser.roles.includes(role);
-                          
-                          // Shield Root admin roles against deletion from console (Disabled by developer request)
-                          const isProtectedRoot = false;
-                          
-                          return (
-                            <button
-                              key={role}
-                              disabled={isProtectedRoot}
-                              onClick={() => handleToggleMemberRole(role)}
-                              className={`flex items-center space-x-2.5 p-2 rounded-lg text-left transition-colors text-xs ${
-                                isProtectedRoot 
-                                  ? 'opacity-60 cursor-not-allowed text-neutral-500' 
-                                  : 'hover:bg-neutral-900 cursor-pointer text-neutral-400 hover:text-white font-sans'
-                              }`}
+                        <div>
+                          <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Email *</label>
+                          <input
+                            type="email"
+                            value={userEmail}
+                            onChange={e => setUserEmail(e.target.value)}
+                            placeholder="e.g. randika@email.com"
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Admission No</label>
+                            <input
+                              type="text"
+                              value={userAdmissionNo}
+                              onChange={e => setUserAdmissionNo(e.target.value)}
+                              placeholder="e.g. DSC-8874"
+                              className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Joined Year</label>
+                            <input
+                              type="text"
+                              value={userJoinedYear}
+                              onChange={e => setUserJoinedYear(e.target.value)}
+                              placeholder="e.g. 2026"
+                              className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Gender</label>
+                            <select
+                              value={userGender}
+                              onChange={e => setUserGender(e.target.value as any)}
+                              className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500 cursor-pointer"
                             >
-                              <div className="text-neutral-500 shrink-0">
-                                {hasRole ? (
-                                  <CheckSquare className="text-amber-500 w-4 h-4" />
-                                ) : (
-                                  <Square className="w-4 h-4" />
-                                )
-                                }
-                              </div>
-                              <span className={`truncate font-medium ${hasRole ? 'text-white' : 'text-neutral-400'}`}>
-                                {role}
-                              </span>
-                            </button>
-                          );
-                        })}
+                              <option value="Male">Male</option>
+                              <option value="Female">Female</option>
+                              <option value="Other">Other</option>
+                              <option value="Prefer not to say">Prefer not to say</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Avatar Image URL</label>
+                            <input
+                              type="text"
+                              value={userAvatarUrl}
+                              onChange={e => setUserAvatarUrl(e.target.value)}
+                              placeholder="Optional image url..."
+                              className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Biography / About</label>
+                          <textarea
+                            value={userBio}
+                            onChange={e => setUserBio(e.target.value)}
+                            placeholder="Write a tiny introductory line..."
+                            rows={2}
+                            className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+
+                        {/* Assigning Initial Roles checklists */}
+                        <div>
+                          <label className="block text-[10px] uppercase font-mono text-amber-500 mb-2">Configure Initial Roles</label>
+                          <div className="grid grid-cols-2 gap-1.5 max-h-32 overflow-y-auto bg-slate-950 p-2 rounded-lg border border-neutral-900">
+                            {AVAILABLE_ROLES.map(role => {
+                              const hasRole = selectedUserRoles.includes(role);
+                              return (
+                                <button
+                                  key={role}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedUserRoles(prev => 
+                                      prev.includes(role) ? prev.filter(r => r !== role) : [...prev, role]
+                                    );
+                                  }}
+                                  className="flex items-center space-x-1.5 p-1 hover:bg-neutral-900 rounded text-left truncate text-[10px] cursor-pointer"
+                                >
+                                  {hasRole ? (
+                                    <CheckSquare className="text-amber-500 w-3 h-3" />
+                                  ) : (
+                                    <Square className="w-3 h-3 text-slate-600" />
+                                  )}
+                                  <span className={hasRole ? 'text-white' : 'text-neutral-550'}>{role}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="pt-2">
+                          <button
+                            onClick={handleSaveUser}
+                            className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-2 rounded-xl text-xs transition-all cursor-pointer"
+                          >
+                            Register Student Profile
+                          </button>
+                        </div>
                       </div>
+                    </div>
+                  ) : selectedUser ? (
+                    <div>
+                      {/* Sub Tabs for selected user: Roles vs Details */}
+                      <div className="flex border-b border-neutral-800 mb-4 pb-2 justify-between items-center">
+                        <div className="flex space-x-1">
+                          <button
+                            onClick={() => setUserEditTab('roles')}
+                            className={`px-3 py-1 rounded-lg text-[10px] uppercase font-mono font-bold transition-all cursor-pointer ${
+                              userEditTab === 'roles'
+                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                : 'text-neutral-400 hover:text-white'
+                            }`}
+                          >
+                            Set Roles
+                          </button>
+                          <button
+                            onClick={() => setUserEditTab('details')}
+                            className={`px-3 py-1 rounded-lg text-[10px] uppercase font-mono font-bold transition-all cursor-pointer ${
+                              userEditTab === 'details'
+                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                : 'text-neutral-400 hover:text-white'
+                            }`}
+                          >
+                            Edit Details
+                          </button>
+                        </div>
+                        <div className="text-right truncate max-w-[150px]">
+                          <span className="text-[10px] text-neutral-500 font-mono italic break-all block">{selectedUser.fullName}</span>
+                        </div>
+                      </div>
+
+                      {userEditTab === 'roles' ? (
+                        <div className="animate-fade-in text-left">
+                          <p className="text-[10px] text-neutral-400 leading-relaxed font-sans mb-3">
+                            Check or uncheck the checkboxes below to edit assigned duties. Multiple roles are allowed. Role updates synchronize instantly.
+                          </p>
+
+                          {/* Checklist grid */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 h-60 overflow-y-auto pr-1">
+                            {AVAILABLE_ROLES.map(role => {
+                              const hasRole = selectedUserRoles.includes(role);
+                              const isProtectedRoot = false;
+                              
+                              return (
+                                <button
+                                  key={role}
+                                  disabled={isProtectedRoot}
+                                  onClick={() => handleToggleMemberRole(role)}
+                                  className={`flex items-center space-x-2.5 p-2 rounded-lg text-left transition-all text-xs ${
+                                    isProtectedRoot 
+                                      ? 'opacity-60 cursor-not-allowed text-neutral-500' 
+                                      : 'hover:bg-neutral-900 cursor-pointer text-neutral-400 hover:text-white font-sans'
+                                  }`}
+                                >
+                                  <div className="text-neutral-500 shrink-0">
+                                    {hasRole ? (
+                                      <CheckSquare className="text-amber-500 w-4 h-4" />
+                                    ) : (
+                                      <Square className="w-4 h-4" />
+                                    )}
+                                  </div>
+                                  <span className={`truncate font-medium ${hasRole ? 'text-white' : 'text-neutral-400'}`}>
+                                    {role}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="animate-fade-in text-left space-y-3 font-sans text-xs">
+                          <div>
+                            <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Full Name</label>
+                            <input
+                              type="text"
+                              value={userFullName}
+                              onChange={e => setUserFullName(e.target.value)}
+                              className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500 font-sans"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Email Address</label>
+                            <input
+                              type="email"
+                              value={userEmail}
+                              onChange={e => setUserEmail(e.target.value)}
+                              className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Admission No</label>
+                              <input
+                                type="text"
+                                value={userAdmissionNo}
+                                onChange={e => setUserAdmissionNo(e.target.value)}
+                                className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Joined Year</label>
+                              <input
+                                type="text"
+                                value={userJoinedYear}
+                                onChange={e => setUserJoinedYear(e.target.value)}
+                                className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Gender</label>
+                              <select
+                                value={userGender}
+                                onChange={e => setUserGender(e.target.value as any)}
+                                className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500 cursor-pointer"
+                              >
+                                <option value="Male">Male</option>
+                                <option value="Female">Female</option>
+                                <option value="Other">Other</option>
+                                <option value="Prefer not to say">Prefer not to say</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Avatar Image URL</label>
+                              <input
+                                type="text"
+                                value={userAvatarUrl}
+                                onChange={e => setUserAvatarUrl(e.target.value)}
+                                className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Biography / Contributions</label>
+                            <textarea
+                              rows={3}
+                              value={userBio}
+                              onChange={e => setUserBio(e.target.value)}
+                              className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                            />
+                          </div>
+
+                          <div className="pt-2 flex space-x-2">
+                            <button
+                              onClick={handleSaveUser}
+                              className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-2 rounded-xl text-xs transition-colors cursor-pointer"
+                            >
+                              Save Details
+                            </button>
+                            <button
+                              onClick={() => {
+                                setUserFullName(selectedUser.fullName);
+                                setUserEmail(selectedUser.email);
+                                setUserAdmissionNo(selectedUser.admissionNo);
+                                setUserJoinedYear(selectedUser.joinedYear || '2026');
+                                setUserGender(selectedUser.gender || 'Prefer not to say');
+                                setUserBio(selectedUser.bio || '');
+                                setUserAvatarUrl(selectedUser.avatarUrl || '');
+                              }}
+                              className="px-4 py-2 border border-neutral-800 text-neutral-400 hover:text-white rounded-xl text-xs hover:bg-neutral-900 transition-all cursor-pointer"
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Delete student safety hatch */}
                       {selectedUser.uid !== 'admin-1' && selectedUser.uid !== currentUser?.uid && (
@@ -464,7 +849,7 @@ export default function AdminDashboard() {
                                 triggerSuccess('Student registration archived successfully.');
                               }
                             }}
-                            className="flex items-center space-x-1 py-1.5 px-3 rounded-lg bg-rose-950/20 text-rose-450 hover:bg-rose-955/20 text-rose-400 text-[10px] uppercase font-mono tracking-wider transition-colors cursor-pointer"
+                            className="flex items-center space-x-1 py-1.5 px-3 rounded-lg bg-rose-955/20 text-rose-400 hover:bg-rose-900/40 text-[10px] uppercase font-mono tracking-wider transition-colors cursor-pointer"
                           >
                             <Trash2 size={12} />
                             <span>Archive Profile Ledger</span>
@@ -473,9 +858,11 @@ export default function AdminDashboard() {
                       )}
                     </div>
                   ) : (
-                    <div className="h-full flex flex-col items-center justify-center py-10 text-center">
-                      <Users className="w-8 h-8 text-slate-700 mb-2" />
-                      <p className="text-xs text-slate-500 font-medium font-sans">Select a student profile from directory grid to review and edit their role mappings.</p>
+                    <div className="h-full flex flex-col items-center justify-center py-20 text-center">
+                      <Users className="w-8 h-8 text-neutral-700 mb-2" />
+                      <p className="text-xs text-neutral-500 font-medium font-sans max-w-[240px] leading-relaxed">
+                        Select a student profile from roster directory, or click <strong className="text-amber-500">Create Student Account</strong> to register a new student.
+                      </p>
                     </div>
                   )}
                 </div>

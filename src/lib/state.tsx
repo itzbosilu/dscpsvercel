@@ -68,6 +68,8 @@ interface DSCPSContextType {
   updateRolePrivilege: (roleName: RoleName, privileges: PrivilegeKey[]) => void;
   updateUserRoles: (uid: string, roles: RoleName[]) => void;
   deleteUser: (uid: string) => void;
+  adminCreateUserProfile: (profile: Omit<UserProfile, "uid"> & { uid?: string }) => void;
+  adminUpdateUserProfile: (uid: string, profile: Partial<UserProfile>) => void;
   
   // Board Management Actions
   addBoardMember: (member: Omit<BoardMember, 'id'>) => void;
@@ -218,38 +220,217 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
     return saved ? JSON.parse(saved) : INITIAL_WORKLOADS;
   });
 
-  // Persists state helper
+  const [dbLoaded, setDbLoaded] = useState(false);
+
+  // Load all state from MongoDB database on mount
+  useEffect(() => {
+    async function loadAllStatesFromDb() {
+      try {
+        const response = await fetch('/api/state');
+        const json = await response.json();
+        
+        if (json.success && json.states) {
+          const states = json.states;
+          let hasAnyState = false;
+
+          if (states.siteConfig) {
+            setSiteConfig(states.siteConfig);
+            hasAnyState = true;
+          } else {
+            fetch('/api/state/siteConfig', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ data: siteConfig })
+            }).catch(e => console.error(e));
+          }
+
+          if (states.rolePrivileges) {
+            setRolePrivileges(states.rolePrivileges);
+            hasAnyState = true;
+          } else {
+            fetch('/api/state/rolePrivileges', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ data: rolePrivileges })
+            }).catch(e => console.error(e));
+          }
+
+          let dbUsers = users;
+          if (states.users) {
+            setUsers(states.users);
+            dbUsers = states.users;
+            hasAnyState = true;
+          } else {
+            fetch('/api/state/users', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ data: users })
+            }).catch(e => console.error(e));
+          }
+
+          if (states.boardMembers) {
+            setBoardMembers(states.boardMembers);
+            hasAnyState = true;
+          } else {
+            fetch('/api/state/boardMembers', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ data: boardMembers })
+            }).catch(e => console.error(e));
+          }
+
+          if (states.announcements) {
+            setAnnouncements(states.announcements);
+            hasAnyState = true;
+          } else {
+            fetch('/api/state/announcements', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ data: announcements })
+            }).catch(e => console.error(e));
+          }
+
+          if (states.gallery) {
+            setGallery(states.gallery);
+            hasAnyState = true;
+          } else {
+            fetch('/api/state/gallery', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ data: gallery })
+            }).catch(e => console.error(e));
+          }
+
+          if (states.articles) {
+            setArticles(states.articles);
+            hasAnyState = true;
+          } else {
+            fetch('/api/state/articles', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ data: articles })
+            }).catch(e => console.error(e));
+          }
+
+          if (states.workloads) {
+            setWorkloads(states.workloads);
+            hasAnyState = true;
+          } else {
+            fetch('/api/state/workloads', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ data: workloads })
+            }).catch(e => console.error(e));
+          }
+
+          // Retrieve active session from localStorage and reconcile profile details
+          const savedSession = localStorage.getItem('dscps_current_user');
+          if (savedSession) {
+            const parsedSession = JSON.parse(savedSession);
+            const verifiedProfile = dbUsers.find(u => u.uid === parsedSession.uid);
+            if (verifiedProfile) {
+              setCurrentUser(verifiedProfile);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error establishing synchronization link to MongoDB server:", err);
+      } finally {
+        setDbLoaded(true);
+      }
+    }
+
+    loadAllStatesFromDb();
+  }, []);
+
+  // Save changes to MongoDB on client-side state transitions
   useEffect(() => {
     localStorage.setItem('dscps_site_config', JSON.stringify(siteConfig));
-  }, [siteConfig]);
+    if (dbLoaded) {
+      fetch('/api/state/siteConfig', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: siteConfig })
+      }).catch(err => console.error("Site configuration upload failed:", err));
+    }
+  }, [siteConfig, dbLoaded]);
 
   useEffect(() => {
     localStorage.setItem('dscps_role_privileges', JSON.stringify(rolePrivileges));
-  }, [rolePrivileges]);
+    if (dbLoaded) {
+      fetch('/api/state/rolePrivileges', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: rolePrivileges })
+      }).catch(err => console.error("Role privilege log upload failed:", err));
+    }
+  }, [rolePrivileges, dbLoaded]);
 
   useEffect(() => {
     localStorage.setItem('dscps_users', JSON.stringify(users));
-  }, [users]);
+    if (dbLoaded) {
+      fetch('/api/state/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: users })
+      }).catch(err => console.error("Student registry upload failed:", err));
+    }
+  }, [users, dbLoaded]);
 
   useEffect(() => {
     localStorage.setItem('dscps_board', JSON.stringify(boardMembers));
-  }, [boardMembers]);
+    if (dbLoaded) {
+      fetch('/api/state/boardMembers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: boardMembers })
+      }).catch(err => console.error("Board profile roster upload failed:", err));
+    }
+  }, [boardMembers, dbLoaded]);
 
   useEffect(() => {
     localStorage.setItem('dscps_announcements', JSON.stringify(announcements));
-  }, [announcements]);
+    if (dbLoaded) {
+      fetch('/api/state/announcements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: announcements })
+      }).catch(err => console.error("Bulletin logs upload failed:", err));
+    }
+  }, [announcements, dbLoaded]);
 
   useEffect(() => {
     localStorage.setItem('dscps_gallery', JSON.stringify(gallery));
-  }, [gallery]);
+    if (dbLoaded) {
+      fetch('/api/state/gallery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: gallery })
+      }).catch(err => console.error("Photographers corner gallery upload failed:", err));
+    }
+  }, [gallery, dbLoaded]);
 
   useEffect(() => {
     localStorage.setItem('dscps_articles', JSON.stringify(articles));
-  }, [articles]);
+    if (dbLoaded) {
+      fetch('/api/state/articles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: articles })
+      }).catch(err => console.error("Editors corner articles upload failed:", err));
+    }
+  }, [articles, dbLoaded]);
 
   useEffect(() => {
     localStorage.setItem('dscps_workloads', JSON.stringify(workloads));
-  }, [workloads]);
+    if (dbLoaded) {
+      fetch('/api/state/workloads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: workloads })
+      }).catch(err => console.error("Workload list upload failed:", err));
+    }
+  }, [workloads, dbLoaded]);
 
   useEffect(() => {
     if (currentUser) {
@@ -482,6 +663,31 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
     setUsers(prev => prev.filter(u => u.uid !== uid));
   };
 
+  const adminCreateUserProfile = (profile: Omit<UserProfile, 'uid'> & { uid?: string }) => {
+    const newUser: UserProfile = {
+      ...profile,
+      uid: profile.uid || 'dsc-user-man-' + Math.random().toString(36).substring(2, 9),
+      points: profile.points ?? 120,
+      photographerPoints: profile.photographerPoints ?? (profile.roles?.some(r => r.includes('Photographer')) ? 120 : 0),
+      editorPoints: profile.editorPoints ?? (profile.roles?.some(r => r.includes('Editor')) ? 120 : 0),
+    };
+    setUsers(prev => [...prev, newUser]);
+  };
+
+  const adminUpdateUserProfile = (uid: string, profile: Partial<UserProfile>) => {
+    setUsers(prev => prev.map(u => {
+      if (u.uid === uid) {
+        return {
+          ...u,
+          ...profile,
+          photographerPoints: profile.photographerPoints ?? u.photographerPoints ?? (profile.roles?.some(r => r.includes('Photographer')) ? 120 : 0),
+          editorPoints: profile.editorPoints ?? u.editorPoints ?? (profile.roles?.some(r => r.includes('Editor')) ? 120 : 0)
+        };
+      }
+      return u;
+    }));
+  };
+
   // Board
   const addBoardMember = (member: Omit<BoardMember, 'id'>) => {
     const newMember: BoardMember = {
@@ -653,6 +859,8 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
       updateRolePrivilege,
       updateUserRoles,
       deleteUser,
+      adminCreateUserProfile,
+      adminUpdateUserProfile,
       
       addBoardMember,
       updateBoardMember,
