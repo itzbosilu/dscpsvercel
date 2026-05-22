@@ -4,7 +4,7 @@
  */
 
 import { useState, FormEvent } from 'react';
-import { useDSCPS } from '../lib/state';
+import { useDSCPS, getUserAvatar } from '../lib/state';
 import ImageUploadField from './ImageUploadField';
 import LeaderboardView from './LeaderboardView';
 import StudentPerformanceView from './StudentPerformanceView';
@@ -602,7 +602,7 @@ export default function Corners({ initialActiveSection, onNavigateToProfile }: C
                               <div className="flex items-center space-x-2.5 min-w-0" onClick={() => onNavigateToProfile(u.uid)}>
                                 <div className="relative cursor-pointer">
                                   <img 
-                                    src={u.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=120'} 
+                                    src={getUserAvatar(u.avatarUrl, u.gender)} 
                                     alt={u.fullName} 
                                     className="w-7 h-7 rounded-full object-cover border border-neutral-800 grayscale-30" 
                                   />

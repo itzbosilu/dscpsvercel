@@ -4,6 +4,7 @@
  */
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { signInWithGoogle } from './firebase';
 import {
   UserProfile,
   RolePrivilegeConfig,
@@ -26,6 +27,24 @@ import {
   INITIAL_ARTICLES
 } from '../data/defaultData';
 
+export function getUserAvatar(avatarUrl: string | undefined, gender?: string): string {
+  if (avatarUrl && avatarUrl.trim() !== '') {
+    return avatarUrl;
+  }
+  
+  const g = gender?.toLowerCase();
+  if (g === 'male') {
+    // Premium custom high-contrast male silhouette SVG (Dark Theme friendly with amber accent highlight)
+    return `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none"><rect width="100" height="100" rx="50" fill="%23171717"/><circle cx="50" cy="36" r="16" fill="%23404040"/><path d="M15 85 C15 62 28 56 50 56 C72 56 85 62 85 85" fill="%23404040"/><circle cx="50" cy="36" r="16" stroke="%23f59e0b" stroke-width="2"/></svg>`;
+  }
+  if (g === 'female') {
+    // Premium custom high-contrast female silhouette SVG (Dark Theme friendly with pink accent highlight)
+    return `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none"><rect width="100" height="100" rx="50" fill="%23171717"/><circle cx="50" cy="36" r="15" fill="%23404040"/><path d="M15 85 C15 62 28 56 50 56 C72 56 85 62 85 85" fill="%23404040"/><path d="M35 34 C35 24 42 18 50 18 C58 18 65 24 65 34 C65 40 58 42 50 42 C42 42 35 40 35 34 Z" fill="%23404040"/><circle cx="50" cy="36" r="15" stroke="%23ec4899" stroke-width="2"/></svg>`;
+  }
+  // Generic background silhouette SVG if unspecified or 'other'
+  return `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none"><rect width="100" height="100" rx="50" fill="%23171717"/><circle cx="50" cy="36" r="16" fill="%23262626"/><path d="M15 85 C15 62 28 56 50 56 C72 56 85 62 85 85" fill="%23262626"/></svg>`;
+}
+
 interface DSCPSContextType {
   siteConfig: SiteConfig;
   rolePrivileges: RolePrivilegeConfig[];
@@ -41,6 +60,7 @@ interface DSCPSContextType {
   login: (email: string) => Promise<UserProfile>;
   register: (email: string, fullName: string, admissionNo: string, joinedYear: string) => Promise<UserProfile>;
   loginWithGoogleSimulate: (email: string, fullName: string) => Promise<UserProfile>;
+  loginWithGoogleFirebase: () => Promise<UserProfile>;
   logout: () => void;
   
   // Admin Customization Actions
@@ -141,8 +161,8 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
         const parsed = JSON.parse(saved);
         return parsed.map((u: any) => ({
           ...u,
-          photographerPoints: u.photographerPoints ?? (u.roles.some((r: any) => r.includes('Photographer')) ? (u.points || 120) : u.uid === 'admin-1' ? 250 : 0),
-          editorPoints: u.editorPoints ?? (u.roles.some((r: any) => r.includes('Editor')) ? (u.points || 120) : u.uid === 'admin-1' ? 200 : 0),
+          photographerPoints: u.photographerPoints ?? (u.roles.some((r: any) => r.includes('Photographer')) ? (u.points || 120) : u.uid === 'admin-1' || u.uid === 'admin-2' ? 250 : 0),
+          editorPoints: u.editorPoints ?? (u.roles.some((r: any) => r.includes('Editor')) ? (u.points || 120) : u.uid === 'admin-1' || u.uid === 'admin-2' ? 200 : 0),
           points: u.points ?? 120
         }));
       } catch (e) {
@@ -150,13 +170,14 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
       }
     }
     return INITIAL_USERS.map(u => {
-      const isBosilu = u.uid === 'admin-1';
+      const isDhananjaya = u.uid === 'admin-1';
+      const isBosilu = u.uid === 'admin-2';
       const isAravinda = u.uid === 'user-2';
       const isMethmi = u.uid === 'user-3';
       
-      const p = isBosilu ? 450 : (isAravinda ? 350 : 120);
-      const photoPts = isBosilu ? 250 : (isAravinda ? 100 : (isMethmi ? 120 : 0));
-      const editPts = isBosilu ? 200 : (isAravinda ? 250 : 0);
+      const p = isDhananjaya ? 500 : (isBosilu ? 450 : (isAravinda ? 350 : 120));
+      const photoPts = isDhananjaya ? 300 : (isBosilu ? 250 : (isAravinda ? 100 : (isMethmi ? 120 : 0)));
+      const editPts = isDhananjaya ? 150 : (isBosilu ? 200 : (isAravinda ? 250 : 0));
       
       return {
         ...u,
@@ -254,23 +275,35 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
   // Auth Methods
   const login = async (email: string): Promise<UserProfile> => {
     const cleanEmail = email.toLowerCase().trim();
-    // Default admin handler
-    if (cleanEmail === 'bosiluniduwara@gmail.com') {
-      const existingAdmin = users.find(u => u.email.toLowerCase() === 'bosiluniduwara@gmail.com');
+    // Default admin hander
+    if (cleanEmail === 'bosiluniduwara@gmail.com' || cleanEmail === 'dhananjaya@gmail.com') {
+      const existingAdmin = users.find(u => u.email.toLowerCase() === cleanEmail);
       if (existingAdmin) {
         setCurrentUser(existingAdmin);
         return existingAdmin;
       } else {
         // Auto-recreate default admin if deleted
-        const newAdmin: UserProfile = {
+        const isDhananjaya = cleanEmail === 'dhananjaya@gmail.com';
+        const newAdmin: UserProfile = isDhananjaya ? {
           uid: 'admin-1',
+          email: 'dhananjaya@gmail.com',
+          fullName: 'Dhananjaya Damsith',
+          admissionNo: 'DSC-2022-7741',
+          joinedYear: '2022',
+          avatarUrl: '',
+          bio: 'DSCPS Society President. Leading creative vision, scheduling exhibitions, and organizing student photo masterclasses.',
+          roles: ['President', 'Senior Photographer'],
+          gender: 'Male',
+        } : {
+          uid: 'admin-2',
           email: 'bosiluniduwara@gmail.com',
           fullName: 'Bosilu Niduwara',
           admissionNo: 'DSC-2022-8921',
           joinedYear: '2022',
           avatarUrl: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?q=80&w=400&auto=format&fit=crop',
-          bio: 'DSCPS President & Secretary admin account. Driving creative photography, coordinating school exhibits, and managing society frameworks.',
-          roles: ['President', 'Secretary', 'Senior Photographer'],
+          bio: 'DSCPS Secretary. Managing student rosters, privilege logs, workshop agendas, and society frameworks.',
+          roles: ['Secretary', 'Senior Photographer'],
+          gender: 'Male',
         };
         setUsers(prev => [newAdmin, ...prev]);
         setCurrentUser(newAdmin);
@@ -294,20 +327,33 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
       throw new Error('An account with this email already exists.');
     }
 
-    // Default roles for a new registrant is "Student", unless they are the admin
-    const defaultRoles: RoleName[] = cleanEmail === 'bosiluniduwara@gmail.com' 
-      ? ['President', 'Secretary'] 
+    // Default roles for a new registrant is "Student", unless they are admin
+    const isPresident = cleanEmail === 'dhananjaya@gmail.com';
+    const isSecretary = cleanEmail === 'bosiluniduwara@gmail.com';
+    const defaultRoles: RoleName[] = isPresident 
+      ? ['President', 'Senior Photographer'] 
+      : isSecretary 
+      ? ['Secretary', 'Senior Photographer'] 
       : ['Student', 'Member'];
 
     const newUser: UserProfile = {
-      uid: 'dsc-user-' + Math.random().toString(36).substring(2, 9),
+      uid: isPresident ? 'admin-1' : isSecretary ? 'admin-2' : 'dsc-user-' + Math.random().toString(36).substring(2, 9),
       email: cleanEmail,
       fullName: fullName.trim(),
       admissionNo: admissionNo.trim() || 'DSC-' + Math.floor(1000 + Math.random() * 9000),
       joinedYear: joinedYear || new Date().getFullYear().toString(),
-      avatarUrl: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=400&auto=format&fit=crop`,
-      bio: `Fresh student member of the DSCPS photographic squad. Ready to learn and capture!`,
+      avatarUrl: isSecretary 
+        ? 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?q=80&w=400&auto=format&fit=crop'
+        : isPresident
+        ? ''
+        : `https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=400&auto=format&fit=crop`,
+      bio: isPresident 
+        ? 'DSCPS Society President. Leading creative vision, scheduling exhibitions, and organizing student photo masterclasses.'
+        : isSecretary
+        ? 'DSCPS Secretary. Managing student rosters, privilege logs, workshop agendas, and society frameworks.'
+        : `Fresh student member of the DSCPS photographic squad. Ready to learn and capture!`,
       roles: defaultRoles,
+      gender: isPresident || isSecretary ? 'Male' : undefined,
     };
 
     setUsers(prev => [...prev, newUser]);
@@ -323,27 +369,82 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
       return existing;
     }
 
-    // If Google login represents a brand new user, register them instantly
-    const isPrimaryAdmin = cleanEmail === 'bosiluniduwara@gmail.com';
-    const roles: RoleName[] = isPrimaryAdmin 
-      ? ['President', 'Secretary', 'Senior Photographer'] 
+    const isPresident = cleanEmail === 'dhananjaya@gmail.com';
+    const isSecretary = cleanEmail === 'bosiluniduwara@gmail.com';
+    
+    const roles: RoleName[] = isPresident 
+      ? ['President', 'Senior Photographer'] 
+      : isSecretary 
+      ? ['Secretary', 'Senior Photographer']
       : ['Student', 'Member'];
 
-    const studentNo = isPrimaryAdmin ? 'DSC-2022-8921' : 'DSC-' + Math.floor(1000 + Math.random() * 9000);
+    const studentNo = isPresident ? 'DSC-2022-7741' : isSecretary ? 'DSC-2022-8921' : 'DSC-' + Math.floor(1000 + Math.random() * 9000);
 
     const newUser: UserProfile = {
-      uid: isPrimaryAdmin ? 'admin-1' : 'dsc-user-google-' + Math.random().toString(36).substring(2, 9),
+      uid: isPresident ? 'admin-1' : isSecretary ? 'admin-2' : 'dsc-user-google-' + Math.random().toString(36).substring(2, 9),
       email: cleanEmail,
       fullName: fullName,
       admissionNo: studentNo,
       joinedYear: new Date().getFullYear().toString(),
-      avatarUrl: isPrimaryAdmin 
+      avatarUrl: isSecretary 
         ? 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?q=80&w=400&auto=format&fit=crop'
+        : isPresident
+        ? ''
         : `https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=400&auto=format&fit=crop`,
-      bio: isPrimaryAdmin 
-        ? 'DSCPS President & Secretary admin account. Driving creative photography, coordinating school exhibits, and managing society frameworks.'
+      bio: isPresident 
+        ? 'DSCPS Society President. Leading creative vision, scheduling exhibitions, and organizing student photo masterclasses.'
+        : isSecretary
+        ? 'DSCPS Secretary. Managing student rosters, privilege logs, workshop agendas, and society frameworks.'
         : `Student level photographer signed in with Google. Active camera fan!`,
       roles: roles,
+      gender: isPresident || isSecretary ? 'Male' : undefined,
+    };
+
+    setUsers(prev => [...prev, newUser]);
+    setCurrentUser(newUser);
+    return newUser;
+  };
+
+  const loginWithGoogleFirebase = async (): Promise<UserProfile> => {
+    const firebaseUser = await signInWithGoogle();
+    const email = firebaseUser.email || '';
+    const displayName = firebaseUser.displayName || email.split('@')[0] || 'Google Scholar';
+    const cleanEmail = email.toLowerCase().trim();
+    const existing = users.find(u => u.email.toLowerCase() === cleanEmail);
+    if (existing) {
+      setCurrentUser(existing);
+      return existing;
+    }
+
+    const isPresident = cleanEmail === 'dhananjaya@gmail.com';
+    const isSecretary = cleanEmail === 'bosiluniduwara@gmail.com';
+
+    const roles: RoleName[] = isPresident 
+      ? ['President', 'Senior Photographer'] 
+      : isSecretary 
+      ? ['Secretary', 'Senior Photographer']
+      : ['Student', 'Member'];
+
+    const studentNo = isPresident ? 'DSC-2022-7741' : isSecretary ? 'DSC-2022-8921' : 'DSC-' + Math.floor(1000 + Math.random() * 9000);
+
+    const newUser: UserProfile = {
+      uid: isPresident ? 'admin-1' : isSecretary ? 'admin-2' : (firebaseUser.uid || 'dsc-user-fb-' + Math.random().toString(36).substring(2, 9)),
+      email: cleanEmail,
+      fullName: displayName,
+      admissionNo: studentNo,
+      joinedYear: new Date().getFullYear().toString(),
+      avatarUrl: firebaseUser.photoURL || (isSecretary 
+        ? 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?q=80&w=400&auto=format&fit=crop'
+        : isPresident
+        ? ''
+        : `https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=400&auto=format&fit=crop`),
+      bio: isPresident 
+        ? 'DSCPS Society President. Leading creative vision, scheduling exhibitions, and organizing student photo masterclasses.'
+        : isSecretary
+        ? 'DSCPS Secretary. Managing student rosters, privilege logs, workshop agendas, and society frameworks.'
+        : `Student level photographer signed in with Google. Active camera fan!`,
+      roles: roles,
+      gender: isPresident || isSecretary ? 'Male' : undefined,
     };
 
     setUsers(prev => [...prev, newUser]);
@@ -545,6 +646,7 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
       login,
       register,
       loginWithGoogleSimulate,
+      loginWithGoogleFirebase,
       logout,
       
       updateSiteConfig,

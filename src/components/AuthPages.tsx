@@ -13,7 +13,7 @@ interface AuthPagesProps {
 }
 
 export default function AuthPages({ onClose, onSuccess }: AuthPagesProps) {
-  const { login, register, loginWithGoogleSimulate } = useDSCPS();
+  const { login, register, loginWithGoogleSimulate, loginWithGoogleFirebase } = useDSCPS();
   
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [showGoogleModal, setShowGoogleModal] = useState(false);
@@ -73,6 +73,21 @@ export default function AuthPages({ onClose, onSuccess }: AuthPagesProps) {
       }, 1000);
     } catch (err: any) {
       setErrorMsg(err.message || 'Google Auth simulation failed.');
+    }
+  };
+
+  const handleRealGoogleLogin = async () => {
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const userProfile = await loginWithGoogleFirebase();
+      setSuccessMsg(`Google Auth Success! Signed in as ${userProfile.fullName}`);
+      setTimeout(() => {
+        onSuccess();
+        onClose();
+      }, 1000);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Firebase Google Sign-In failed or was cancelled.');
     }
   };
 
@@ -234,19 +249,30 @@ export default function AuthPages({ onClose, onSuccess }: AuthPagesProps) {
           </div>
         </div>
 
-        {/* simulated Google Login trigger */}
+        {/* Real Firebase Google Login trigger */}
         <button
-          onClick={() => setShowGoogleModal(true)}
+          onClick={handleRealGoogleLogin}
           id="btn-google-sign-in"
-          className="w-full flex items-center justify-center space-x-2.5 bg-white hover:bg-neutral-100 text-neutral-900 font-semibold py-2.5 rounded-xl text-xs transition-colors shadow-inner cursor-pointer"
+          className="w-full flex items-center justify-center space-x-2.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold py-2.5 rounded-xl text-xs transition-all shadow-md cursor-pointer transform active:scale-95 mb-2.5"
         >
           <img 
             src="https://images.unsplash.com/photo-1573804633927-bfcbcd909acd?q=80&w=120&auto=format&fit=crop" 
             alt="Google" 
             className="w-4 h-4 rounded-full object-cover shrink-0" 
           />
-          <span>Sign In Directly with Google Account</span>
+          <span>Sign In with Google (Real Firebase)</span>
         </button>
+
+        {/* Local Sandbox Dev simulator Link */}
+        <div className="text-center mb-1">
+          <button
+            type="button"
+            onClick={() => setShowGoogleModal(true)}
+            className="text-[10px] font-mono text-neutral-500 hover:text-amber-500 underline uppercase tracking-wider bg-transparent border-none cursor-pointer focus:outline-none"
+          >
+            Or use Offline Student Sandbox Sim
+          </button>
+        </div>
 
         <div className="text-center mt-5 text-xs text-neutral-400">
           {isRegisterMode ? 'Already a registered student member?' : "Don't have a photographic registry yet?"}

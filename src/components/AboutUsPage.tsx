@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useDSCPS } from '../lib/state';
+import { useDSCPS, getUserAvatar } from '../lib/state';
 import { Camera, Mail, Sparkles, Award } from 'lucide-react';
 
 export default function AboutUsPage() {
@@ -52,7 +52,7 @@ export default function AboutUsPage() {
                 {/* Board Image with dark vintage filter overlay */}
                 <div className="relative aspect-square w-full bg-neutral-900 overflow-hidden">
                   <img
-                    src={member.imageUrl || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=400&auto=format&fit=crop'}
+                    src={getUserAvatar(member.imageUrl, member.gender)}
                     alt={member.fullName}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                   />

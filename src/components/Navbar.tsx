@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import { useDSCPS } from '../lib/state';
+import { useDSCPS, getUserAvatar } from '../lib/state';
 import { Camera, ShieldAlert, User, LogOut, Menu, X, Image as ImageIcon, BookOpen, LayoutDashboard, Compass } from 'lucide-react';
 
 interface NavbarProps {
@@ -123,7 +123,7 @@ export default function Navbar({ currentTab, setCurrentTab, onOpenAuth }: Navbar
                 className="flex items-center space-x-2 p-1 rounded-full hover:bg-neutral-950/80 transition-colors focus:outline-none cursor-pointer"
               >
                 <img
-                  src={currentUser.avatarUrl}
+                  src={getUserAvatar(currentUser.avatarUrl, currentUser.gender)}
                   alt={currentUser.fullName}
                   className="w-8 h-8 rounded-full object-cover border border-neutral-800"
                 />

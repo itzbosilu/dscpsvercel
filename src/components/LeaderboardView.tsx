@@ -5,6 +5,7 @@
 
 import { Camera, ClipboardList, Award } from 'lucide-react';
 import { UserProfile } from '../types';
+import { getUserAvatar } from '../lib/state';
 
 interface LeaderboardViewProps {
   users: UserProfile[];
@@ -32,7 +33,7 @@ export default function LeaderboardView({ users, currentUser, onNavigateToProfil
                 }`}>
                   <div className="flex items-center space-x-3.5 min-w-0" onClick={() => onNavigateToProfile(u.uid)}>
                     <div className="relative cursor-pointer shrink-0">
-                      <img src={u.avatarUrl || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=120'} alt={u.fullName} className="w-9 h-9 rounded-full object-cover border border-neutral-800" />
+                      <img src={getUserAvatar(u.avatarUrl, u.gender)} alt={u.fullName} className="w-9 h-9 rounded-full object-cover border border-neutral-800" />
                       <span className="absolute -top-1 -left-1 w-5 h-5 bg-neutral-950 text-neutral-400 text-[10px] rounded-full border border-neutral-800 flex items-center justify-center font-mono font-bold shadow-md">{i + 1}</span>
                     </div>
                     <div className="min-w-0">
@@ -66,7 +67,7 @@ export default function LeaderboardView({ users, currentUser, onNavigateToProfil
                 }`}>
                   <div className="flex items-center space-x-3.5 min-w-0" onClick={() => onNavigateToProfile(u.uid)}>
                     <div className="relative cursor-pointer shrink-0">
-                      <img src={u.avatarUrl || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=120'} alt={u.fullName} className="w-9 h-9 rounded-full object-cover border border-neutral-800" />
+                      <img src={getUserAvatar(u.avatarUrl, u.gender)} alt={u.fullName} className="w-9 h-9 rounded-full object-cover border border-neutral-800" />
                       <span className="absolute -top-1 -left-1 w-5 h-5 bg-neutral-950 text-neutral-400 text-[10px] rounded-full border border-neutral-800 flex items-center justify-center font-mono font-bold shadow-md">{i + 1}</span>
                     </div>
                     <div className="min-w-0">
@@ -100,7 +101,7 @@ export default function LeaderboardView({ users, currentUser, onNavigateToProfil
                 }`}>
                   <div className="flex items-center space-x-3.5 min-w-0" onClick={() => onNavigateToProfile(u.uid)}>
                     <div className="relative cursor-pointer shrink-0">
-                      <img src={u.avatarUrl || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=120'} alt={u.fullName} className="w-9 h-9 rounded-full object-cover border border-neutral-800" />
+                      <img src={getUserAvatar(u.avatarUrl, u.gender)} alt={u.fullName} className="w-9 h-9 rounded-full object-cover border border-neutral-800" />
                       <span className="absolute -top-1 -left-1 w-5 h-5 bg-neutral-950 text-neutral-400 text-[10px] rounded-full border border-neutral-800 flex items-center justify-center font-mono font-bold shadow-md">{i + 1}</span>
                     </div>
                     <div className="min-w-0">

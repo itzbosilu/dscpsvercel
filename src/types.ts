@@ -46,6 +46,7 @@ export interface UserProfile {
   avatarUrl: string;
   bio: string;
   roles: RoleName[];
+  gender?: 'Male' | 'Female' | 'Other' | 'Prefer not to say';
   customBannerUrl?: string;
   instagramUrl?: string;
   behanceUrl?: string;
@@ -79,6 +80,7 @@ export interface BoardMember {
   imageUrl: string;
   order: number; // For rendering order
   specialAchievement?: string;
+  gender?: 'Male' | 'Female' | 'Other' | 'Prefer not to say';
 }
 
 export interface Announcement {

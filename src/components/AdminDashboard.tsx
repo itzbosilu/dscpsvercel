@@ -4,7 +4,7 @@
  */
 
 import { useState, FormEvent } from 'react';
-import { useDSCPS } from '../lib/state';
+import { useDSCPS, getUserAvatar } from '../lib/state';
 import ImageUploadField from './ImageUploadField';
 import { RoleName, PrivilegeKey, BoardMember, UserProfile } from '../types';
 import { DEFAULT_SCHOOL_LOGO_SVG, DEFAULT_CLUB_LOGO_SVG } from '../data/defaultData';
@@ -114,6 +114,7 @@ export default function AdminDashboard() {
   const [boardImage, setBoardImage] = useState('');
   const [boardOrder, setBoardOrder] = useState(1);
   const [boardAchievement, setBoardAchievement] = useState('');
+  const [boardGender, setBoardGender] = useState<'Male' | 'Female' | 'Other' | 'Prefer not to say'>('Prefer not to say');
 
   // SESSIONS FOR BOARD toggle handler
   const handleToggleBoardRoleSel = (role: RoleName) => {
@@ -130,9 +131,10 @@ export default function AdminDashboard() {
       fullName: boardName.trim(),
       bio: boardBio.trim(),
       roles: boardRolesSelected.length > 0 ? boardRolesSelected : ['Committee Member' as RoleName],
-      imageUrl: boardImage.trim() || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=400',
+      imageUrl: boardImage.trim() || '', // Explicitly blank if empty to activate our no face placeholder logic!
       order: Number(boardOrder) || 1,
       specialAchievement: boardAchievement.trim() || undefined,
+      gender: boardGender,
     };
 
     if (editingBoardId) {
@@ -151,6 +153,7 @@ export default function AdminDashboard() {
     setBoardImage('');
     setBoardOrder(1);
     setBoardAchievement('');
+    setBoardGender('Prefer not to say');
   };
 
   const handleEditBoardStart = (m: BoardMember) => {
@@ -161,6 +164,7 @@ export default function AdminDashboard() {
     setBoardImage(m.imageUrl);
     setBoardOrder(m.order);
     setBoardAchievement(m.specialAchievement || '');
+    setBoardGender(m.gender || 'Prefer not to say');
   };
 
   // Site Configurations save
@@ -372,7 +376,7 @@ export default function AdminDashboard() {
                         >
                           <div className="flex items-center space-x-3">
                             <img
-                              src={u.avatarUrl}
+                              src={getUserAvatar(u.avatarUrl, u.gender)}
                               alt={u.fullName}
                               className="w-8 h-8 rounded-full object-cover grayscale"
                             />
@@ -418,8 +422,8 @@ export default function AdminDashboard() {
                         {AVAILABLE_ROLES.map(role => {
                           const hasRole = selectedUser.roles.includes(role);
                           
-                          // Shield Root admin roles against deletion from console
-                          const isProtectedRoot = selectedUser.uid === 'admin-1' && (role === 'President' || role === 'Secretary');
+                          // Shield Root admin roles against deletion from console (Disabled by developer request)
+                          const isProtectedRoot = false;
                           
                           return (
                             <button
@@ -540,15 +544,10 @@ export default function AdminDashboard() {
                             return (
                               <td key={slot.key} className="p-4 text-center">
                                 <button
-                                  disabled={isHardcodedAdmin}
                                   onClick={() => handleToggleRolePrivilegeCheckbox(role, slot.key)}
-                                  className={`mx-auto flex items-center justify-center p-1 rounded transition-all focus:outline-none ${
-                                    isHardcodedAdmin 
-                                      ? 'text-amber-500 cursor-not-allowed opacity-80' 
-                                      : 'hover:bg-neutral-900 cursor-pointer text-neutral-405 text-neutral-400'
-                                  }`}
+                                  className="mx-auto flex items-center justify-center p-1 rounded transition-all focus:outline-none hover:bg-neutral-900 cursor-pointer text-neutral-455 text-neutral-400 hover:text-white"
                                 >
-                                  {isHardcodedAdmin || isChecked ? (
+                                  {isChecked ? (
                                     <CheckSquare className="w-4.5 h-4.5 text-amber-500" />
                                   ) : (
                                     <Square className="w-4.5 h-4.5" />
@@ -799,6 +798,20 @@ export default function AdminDashboard() {
                   </div>
 
                   <div>
+                    <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Gender (For Silhouette Fallback)</label>
+                    <select
+                      value={boardGender}
+                      onChange={e => setBoardGender(e.target.value as any)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none cursor-pointer"
+                    >
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                      <option value="Prefer not to say">Prefer not to say</option>
+                    </select>
+                  </div>
+
+                  <div>
                     <label className="block text-[10px] uppercase font-mono text-slate-450 text-slate-400 mb-1">Board Biography / Contribution</label>
                     <textarea
                       rows={3}
@@ -850,7 +863,7 @@ export default function AdminDashboard() {
                       >
                         <div className="flex items-center space-x-3 truncate">
                           <img
-                            src={m.imageUrl}
+                            src={getUserAvatar(m.imageUrl, m.gender)}
                             alt={m.fullName}
                             className="w-10 h-10 rounded-lg object-cover grayscale"
                           />

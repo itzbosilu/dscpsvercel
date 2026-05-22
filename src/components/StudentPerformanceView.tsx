@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { Award, User, Camera, ClipboardList, CheckCircle, XCircle, Clock, ExternalLink } from 'lucide-react';
 import { UserProfile, Workload } from '../types';
+import { getUserAvatar } from '../lib/state';
 
 interface StudentPerformanceViewProps {
   users: UserProfile[];
@@ -79,7 +80,7 @@ export default function StudentPerformanceView({ users, workloads, currentUser, 
           <div>
             <div className="flex items-center space-x-3.5 pb-4 border-b border-neutral-900">
               <img
-                src={student.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=120'}
+                src={getUserAvatar(student.avatarUrl, student.gender)}
                 alt={student.fullName}
                 className="w-14 h-14 rounded-full object-cover border border-neutral-800"
               />

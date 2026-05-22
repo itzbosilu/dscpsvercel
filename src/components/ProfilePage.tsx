@@ -4,7 +4,7 @@
  */
 
 import { useState, FormEvent } from 'react';
-import { useDSCPS } from '../lib/state';
+import { useDSCPS, getUserAvatar } from '../lib/state';
 import { UserProfile, RoleName } from '../types';
 import { Camera, Edit2, ShieldAlert, Award, Instagram, Globe, Save, Info, ArrowLeft, Image as ImageIcon } from 'lucide-react';
 import ImageUploadField from './ImageUploadField';
@@ -29,6 +29,7 @@ export default function ProfilePage({ viewingUserId, onBackToHome }: ProfilePage
   const [editedBanner, setEditedBanner] = useState(targetUser?.customBannerUrl || '');
   const [editedInstagram, setEditedInstagram] = useState(targetUser?.instagramUrl || '');
   const [editedBehance, setEditedBehance] = useState(targetUser?.behanceUrl || '');
+  const [editedGender, setEditedGender] = useState<'Male' | 'Female' | 'Other' | 'Prefer not to say'>(targetUser?.gender || 'Prefer not to say');
 
   if (!targetUser) {
     return (
@@ -57,10 +58,11 @@ export default function ProfilePage({ viewingUserId, onBackToHome }: ProfilePage
 
     // Direct synchronization using local modification mutators
     targetUser.bio = editedBio;
-    if (editedAvatar) targetUser.avatarUrl = editedAvatar;
+    targetUser.avatarUrl = editedAvatar.trim();
     targetUser.customBannerUrl = editedBanner;
     targetUser.instagramUrl = editedInstagram;
     targetUser.behanceUrl = editedBehance;
+    targetUser.gender = editedGender;
     
     // Save to trigger user context update (via updateUserRoles dummy or direct reference mutation that triggers sync in lib/state thanks to our user listener!)
     updateUserRoles(targetUser.uid, [...targetUser.roles]);
@@ -96,10 +98,10 @@ export default function ProfilePage({ viewingUserId, onBackToHome }: ProfilePage
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
           <div className="flex flex-col sm:flex-row items-center sm:items-end space-y-4 sm:space-y-0 sm:space-x-5 text-center sm:text-left">
             
-            {/* Avatar Frame */}
+            {/* Avatar Frame with Fallback Silhouette */}
             <div className="relative group">
               <img
-                src={targetUser.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=400&auto=format&fit=crop'}
+                src={getUserAvatar(targetUser.avatarUrl, targetUser.gender)}
                 alt={targetUser.fullName}
                 className="w-28 h-28 md:w-36 md:h-36 rounded-full object-cover border-4 border-neutral-950 shadow-2xl relative bg-neutral-950"
               />
@@ -138,7 +140,6 @@ export default function ProfilePage({ viewingUserId, onBackToHome }: ProfilePage
                 })}
               </div>
             </div>
-
           </div>
 
           {/* Action triggers */}
@@ -152,6 +153,7 @@ export default function ProfilePage({ viewingUserId, onBackToHome }: ProfilePage
                   setEditedBanner(targetUser.customBannerUrl || '');
                   setEditedInstagram(targetUser.instagramUrl || '');
                   setEditedBehance(targetUser.behanceUrl || '');
+                  setEditedGender(targetUser.gender || 'Prefer not to say');
                 }
                 setIsEditing(!isEditing);
               }}
@@ -190,8 +192,22 @@ export default function ProfilePage({ viewingUserId, onBackToHome }: ProfilePage
                   />
                 </div>
 
+                <div>
+                  <label className="block text-xs uppercase font-mono tracking-wider text-neutral-400 mb-1.5 font-semibold">Gender</label>
+                  <select
+                    value={editedGender}
+                    onChange={e => setEditedGender(e.target.value as any)}
+                    className="w-full bg-neutral-900 border border-neutral-800 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-amber-500 font-sans cursor-pointer focus:ring-1 focus:ring-amber-500"
+                  >
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                    <option value="Prefer not to say">Prefer not to say</option>
+                  </select>
+                </div>
+
                 <ImageUploadField
-                  label="Avatar Picture"
+                  label="Avatar Picture (Leave blank to use no-face placeholder)"
                   value={editedAvatar}
                   onChange={setEditedAvatar}
                   placeholder="Select or drag avatar photo..."
@@ -247,12 +263,17 @@ export default function ProfilePage({ viewingUserId, onBackToHome }: ProfilePage
                 <div className="flex flex-col gap-2 mt-6 pt-5 border-t border-neutral-900">
                   <p className="text-xs uppercase font-mono text-neutral-500 tracking-widest font-bold">Connect & Portfolio</p>
                   
+                  <div className="flex items-center space-x-2 text-xs text-neutral-400">
+                    <span className="text-neutral-500">Gender:</span>
+                    <span className="font-semibold text-neutral-200">{targetUser.gender || 'Prefer not to say'}</span>
+                  </div>
+
                   {targetUser.instagramUrl ? (
                     <a
                       href={targetUser.instagramUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center space-x-2 text-xs text-neutral-400 hover:text-amber-500 transition-colors"
+                      className="flex items-center space-x-2 text-xs text-neutral-400 hover:text-amber-500 transition-colors mt-1"
                     >
                       <Instagram size={14} className="text-pink-500" />
                       <span className="truncate max-w-[180px]">{targetUser.instagramUrl.replace('https://instagram.com/', '@')}</span>
