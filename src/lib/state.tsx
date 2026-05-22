@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
 import { signInWithGoogle } from './firebase';
 import {
   UserProfile,
@@ -222,6 +222,18 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
 
   const [dbLoaded, setDbLoaded] = useState(false);
 
+  // Ref container for holding the latest stringified database replica values to prevent infinite upload loopbacks
+  const lastSyncedRef = useRef<Record<string, string>>({
+    siteConfig: '',
+    rolePrivileges: '',
+    users: '',
+    boardMembers: '',
+    announcements: '',
+    gallery: '',
+    articles: '',
+    workloads: '',
+  });
+
   // Load all state from MongoDB database on mount
   useEffect(() => {
     async function loadAllStatesFromDb() {
@@ -231,11 +243,11 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
         
         if (json.success && json.states) {
           const states = json.states;
-          let hasAnyState = false;
 
           if (states.siteConfig) {
+            const strValue = JSON.stringify(states.siteConfig);
+            lastSyncedRef.current.siteConfig = strValue;
             setSiteConfig(states.siteConfig);
-            hasAnyState = true;
           } else {
             fetch('/api/state/siteConfig', {
               method: 'POST',
@@ -245,8 +257,9 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
           }
 
           if (states.rolePrivileges) {
+            const strValue = JSON.stringify(states.rolePrivileges);
+            lastSyncedRef.current.rolePrivileges = strValue;
             setRolePrivileges(states.rolePrivileges);
-            hasAnyState = true;
           } else {
             fetch('/api/state/rolePrivileges', {
               method: 'POST',
@@ -257,9 +270,10 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
 
           let dbUsers = users;
           if (states.users) {
+            const strValue = JSON.stringify(states.users);
+            lastSyncedRef.current.users = strValue;
             setUsers(states.users);
             dbUsers = states.users;
-            hasAnyState = true;
           } else {
             fetch('/api/state/users', {
               method: 'POST',
@@ -269,8 +283,9 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
           }
 
           if (states.boardMembers) {
+            const strValue = JSON.stringify(states.boardMembers);
+            lastSyncedRef.current.boardMembers = strValue;
             setBoardMembers(states.boardMembers);
-            hasAnyState = true;
           } else {
             fetch('/api/state/boardMembers', {
               method: 'POST',
@@ -280,8 +295,9 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
           }
 
           if (states.announcements) {
+            const strValue = JSON.stringify(states.announcements);
+            lastSyncedRef.current.announcements = strValue;
             setAnnouncements(states.announcements);
-            hasAnyState = true;
           } else {
             fetch('/api/state/announcements', {
               method: 'POST',
@@ -291,8 +307,9 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
           }
 
           if (states.gallery) {
+            const strValue = JSON.stringify(states.gallery);
+            lastSyncedRef.current.gallery = strValue;
             setGallery(states.gallery);
-            hasAnyState = true;
           } else {
             fetch('/api/state/gallery', {
               method: 'POST',
@@ -302,8 +319,9 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
           }
 
           if (states.articles) {
+            const strValue = JSON.stringify(states.articles);
+            lastSyncedRef.current.articles = strValue;
             setArticles(states.articles);
-            hasAnyState = true;
           } else {
             fetch('/api/state/articles', {
               method: 'POST',
@@ -313,8 +331,9 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
           }
 
           if (states.workloads) {
+            const strValue = JSON.stringify(states.workloads);
+            lastSyncedRef.current.workloads = strValue;
             setWorkloads(states.workloads);
-            hasAnyState = true;
           } else {
             fetch('/api/state/workloads', {
               method: 'POST',
@@ -343,92 +362,216 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
     loadAllStatesFromDb();
   }, []);
 
-  // Save changes to MongoDB on client-side state transitions
+  // Background polling loop for seamless multi-device updates
+  useEffect(() => {
+    if (!dbLoaded) return;
+
+    let isActive = true;
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch('/api/state');
+        if (!response.ok) return;
+        const json = await response.json();
+        
+        if (isActive && json.success && json.states) {
+          const states = json.states;
+
+          if (states.siteConfig) {
+            const serialized = JSON.stringify(states.siteConfig);
+            if (lastSyncedRef.current.siteConfig !== serialized) {
+              lastSyncedRef.current.siteConfig = serialized;
+              setSiteConfig(states.siteConfig);
+            }
+          }
+          if (states.rolePrivileges) {
+            const serialized = JSON.stringify(states.rolePrivileges);
+            if (lastSyncedRef.current.rolePrivileges !== serialized) {
+              lastSyncedRef.current.rolePrivileges = serialized;
+              setRolePrivileges(states.rolePrivileges);
+            }
+          }
+          if (states.users) {
+            const serialized = JSON.stringify(states.users);
+            if (lastSyncedRef.current.users !== serialized) {
+              lastSyncedRef.current.users = serialized;
+              setUsers(states.users);
+              
+              // Sync current log user if updated in roster
+              const savedSession = localStorage.getItem('dscps_current_user');
+              if (savedSession) {
+                const parsedSession = JSON.parse(savedSession);
+                const verifiedProfile = states.users.find((u: any) => u.uid === parsedSession.uid);
+                if (verifiedProfile) {
+                  setCurrentUser(verifiedProfile);
+                }
+              }
+            }
+          }
+          if (states.boardMembers) {
+            const serialized = JSON.stringify(states.boardMembers);
+            if (lastSyncedRef.current.boardMembers !== serialized) {
+              lastSyncedRef.current.boardMembers = serialized;
+              setBoardMembers(states.boardMembers);
+            }
+          }
+          if (states.announcements) {
+            const serialized = JSON.stringify(states.announcements);
+            if (lastSyncedRef.current.announcements !== serialized) {
+              lastSyncedRef.current.announcements = serialized;
+              setAnnouncements(states.announcements);
+            }
+          }
+          if (states.gallery) {
+            const serialized = JSON.stringify(states.gallery);
+            if (lastSyncedRef.current.gallery !== serialized) {
+              lastSyncedRef.current.gallery = serialized;
+              setGallery(states.gallery);
+            }
+          }
+          if (states.articles) {
+            const serialized = JSON.stringify(states.articles);
+            if (lastSyncedRef.current.articles !== serialized) {
+              lastSyncedRef.current.articles = serialized;
+              setArticles(states.articles);
+            }
+          }
+          if (states.workloads) {
+            const serialized = JSON.stringify(states.workloads);
+            if (lastSyncedRef.current.workloads !== serialized) {
+              lastSyncedRef.current.workloads = serialized;
+              setWorkloads(states.workloads);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Background state polling encountered temporary glitch:", err);
+      }
+    }, 6000); // Check every 6 seconds
+
+    return () => {
+      isActive = false;
+      clearInterval(interval);
+    };
+  }, [dbLoaded]);
+
+  // Save changes to MongoDB ONLY on client-side mutated updates (avoiding redundancy)
   useEffect(() => {
     localStorage.setItem('dscps_site_config', JSON.stringify(siteConfig));
     if (dbLoaded) {
-      fetch('/api/state/siteConfig', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: siteConfig })
-      }).catch(err => console.error("Site configuration upload failed:", err));
+      const strValue = JSON.stringify(siteConfig);
+      if (lastSyncedRef.current.siteConfig !== strValue) {
+        lastSyncedRef.current.siteConfig = strValue;
+        fetch('/api/state/siteConfig', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: siteConfig })
+        }).catch(err => console.error("Site configuration upload failed:", err));
+      }
     }
   }, [siteConfig, dbLoaded]);
 
   useEffect(() => {
     localStorage.setItem('dscps_role_privileges', JSON.stringify(rolePrivileges));
     if (dbLoaded) {
-      fetch('/api/state/rolePrivileges', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: rolePrivileges })
-      }).catch(err => console.error("Role privilege log upload failed:", err));
+      const strValue = JSON.stringify(rolePrivileges);
+      if (lastSyncedRef.current.rolePrivileges !== strValue) {
+        lastSyncedRef.current.rolePrivileges = strValue;
+        fetch('/api/state/rolePrivileges', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: rolePrivileges })
+        }).catch(err => console.error("Role privilege log upload failed:", err));
+      }
     }
   }, [rolePrivileges, dbLoaded]);
 
   useEffect(() => {
     localStorage.setItem('dscps_users', JSON.stringify(users));
     if (dbLoaded) {
-      fetch('/api/state/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: users })
-      }).catch(err => console.error("Student registry upload failed:", err));
+      const strValue = JSON.stringify(users);
+      if (lastSyncedRef.current.users !== strValue) {
+        lastSyncedRef.current.users = strValue;
+        fetch('/api/state/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: users })
+        }).catch(err => console.error("Student registry upload failed:", err));
+      }
     }
   }, [users, dbLoaded]);
 
   useEffect(() => {
     localStorage.setItem('dscps_board', JSON.stringify(boardMembers));
     if (dbLoaded) {
-      fetch('/api/state/boardMembers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: boardMembers })
-      }).catch(err => console.error("Board profile roster upload failed:", err));
+      const strValue = JSON.stringify(boardMembers);
+      if (lastSyncedRef.current.boardMembers !== strValue) {
+        lastSyncedRef.current.boardMembers = strValue;
+        fetch('/api/state/boardMembers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: boardMembers })
+        }).catch(err => console.error("Board profile roster upload failed:", err));
+      }
     }
   }, [boardMembers, dbLoaded]);
 
   useEffect(() => {
     localStorage.setItem('dscps_announcements', JSON.stringify(announcements));
     if (dbLoaded) {
-      fetch('/api/state/announcements', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: announcements })
-      }).catch(err => console.error("Bulletin logs upload failed:", err));
+      const strValue = JSON.stringify(announcements);
+      if (lastSyncedRef.current.announcements !== strValue) {
+        lastSyncedRef.current.announcements = strValue;
+        fetch('/api/state/announcements', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: announcements })
+        }).catch(err => console.error("Bulletin logs upload failed:", err));
+      }
     }
   }, [announcements, dbLoaded]);
 
   useEffect(() => {
     localStorage.setItem('dscps_gallery', JSON.stringify(gallery));
     if (dbLoaded) {
-      fetch('/api/state/gallery', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: gallery })
-      }).catch(err => console.error("Photographers corner gallery upload failed:", err));
+      const strValue = JSON.stringify(gallery);
+      if (lastSyncedRef.current.gallery !== strValue) {
+        lastSyncedRef.current.gallery = strValue;
+        fetch('/api/state/gallery', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: gallery })
+        }).catch(err => console.error("Photographers corner gallery upload failed:", err));
+      }
     }
   }, [gallery, dbLoaded]);
 
   useEffect(() => {
     localStorage.setItem('dscps_articles', JSON.stringify(articles));
     if (dbLoaded) {
-      fetch('/api/state/articles', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: articles })
-      }).catch(err => console.error("Editors corner articles upload failed:", err));
+      const strValue = JSON.stringify(articles);
+      if (lastSyncedRef.current.articles !== strValue) {
+        lastSyncedRef.current.articles = strValue;
+        fetch('/api/state/articles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: articles })
+        }).catch(err => console.error("Editors corner articles upload failed:", err));
+      }
     }
   }, [articles, dbLoaded]);
 
   useEffect(() => {
     localStorage.setItem('dscps_workloads', JSON.stringify(workloads));
     if (dbLoaded) {
-      fetch('/api/state/workloads', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: workloads })
-      }).catch(err => console.error("Workload list upload failed:", err));
+      const strValue = JSON.stringify(workloads);
+      if (lastSyncedRef.current.workloads !== strValue) {
+        lastSyncedRef.current.workloads = strValue;
+        fetch('/api/state/workloads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: workloads })
+        }).catch(err => console.error("Workload list upload failed:", err));
+      }
     }
   }, [workloads, dbLoaded]);
 
