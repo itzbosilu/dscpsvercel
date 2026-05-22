@@ -1,0 +1,22 @@
+{
+  "entities": {
+    "AppState": {
+      "title": "AppState",
+      "description": "Represents the dynamic configurations, registries, and logs of the DSCPS society",
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "description": "Entire structured dataset of a state key"
+        }
+      },
+      "required": ["data"]
+    }
+  },
+  "firestore": {
+    "/app_state/{stateKey}": {
+      "schema": "AppState",
+      "description": "Dynamic multi-tenant states containing Student Registry, Bulletin Logs, Workloads, and more"
+    }
+  }
+}

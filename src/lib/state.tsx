@@ -4,7 +4,8 @@
  */
 
 import { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
-import { signInWithGoogle } from './firebase';
+import { db, auth, signInWithGoogle } from './firebase';
+import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import {
   UserProfile,
   RolePrivilegeConfig,
@@ -234,238 +235,173 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
     workloads: '',
   });
 
-  // Load all state from MongoDB database on mount
-  useEffect(() => {
-    async function loadAllStatesFromDb() {
-      try {
-        const response = await fetch('/api/state');
-        const json = await response.json();
-        
-        if (json.success && json.states) {
-          const states = json.states;
+  // Ref container to flag active in-flight save requests and block overwrite loops
+  const isSavingRef = useRef<Record<string, boolean>>({
+    siteConfig: false,
+    rolePrivileges: false,
+    users: false,
+    boardMembers: false,
+    announcements: false,
+    gallery: false,
+    articles: false,
+    workloads: false,
+  });
 
-          if (states.siteConfig) {
-            const strValue = JSON.stringify(states.siteConfig);
-            lastSyncedRef.current.siteConfig = strValue;
-            setSiteConfig(states.siteConfig);
-          } else {
-            fetch('/api/state/siteConfig', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ data: siteConfig })
-            }).catch(e => console.error(e));
-          }
+  enum OperationType {
+    CREATE = 'create',
+    UPDATE = 'update',
+    DELETE = 'delete',
+    LIST = 'list',
+    GET = 'get',
+    WRITE = 'write',
+  }
 
-          if (states.rolePrivileges) {
-            const strValue = JSON.stringify(states.rolePrivileges);
-            lastSyncedRef.current.rolePrivileges = strValue;
-            setRolePrivileges(states.rolePrivileges);
-          } else {
-            fetch('/api/state/rolePrivileges', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ data: rolePrivileges })
-            }).catch(e => console.error(e));
-          }
-
-          let dbUsers = users;
-          if (states.users) {
-            const strValue = JSON.stringify(states.users);
-            lastSyncedRef.current.users = strValue;
-            setUsers(states.users);
-            dbUsers = states.users;
-          } else {
-            fetch('/api/state/users', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ data: users })
-            }).catch(e => console.error(e));
-          }
-
-          if (states.boardMembers) {
-            const strValue = JSON.stringify(states.boardMembers);
-            lastSyncedRef.current.boardMembers = strValue;
-            setBoardMembers(states.boardMembers);
-          } else {
-            fetch('/api/state/boardMembers', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ data: boardMembers })
-            }).catch(e => console.error(e));
-          }
-
-          if (states.announcements) {
-            const strValue = JSON.stringify(states.announcements);
-            lastSyncedRef.current.announcements = strValue;
-            setAnnouncements(states.announcements);
-          } else {
-            fetch('/api/state/announcements', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ data: announcements })
-            }).catch(e => console.error(e));
-          }
-
-          if (states.gallery) {
-            const strValue = JSON.stringify(states.gallery);
-            lastSyncedRef.current.gallery = strValue;
-            setGallery(states.gallery);
-          } else {
-            fetch('/api/state/gallery', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ data: gallery })
-            }).catch(e => console.error(e));
-          }
-
-          if (states.articles) {
-            const strValue = JSON.stringify(states.articles);
-            lastSyncedRef.current.articles = strValue;
-            setArticles(states.articles);
-          } else {
-            fetch('/api/state/articles', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ data: articles })
-            }).catch(e => console.error(e));
-          }
-
-          if (states.workloads) {
-            const strValue = JSON.stringify(states.workloads);
-            lastSyncedRef.current.workloads = strValue;
-            setWorkloads(states.workloads);
-          } else {
-            fetch('/api/state/workloads', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ data: workloads })
-            }).catch(e => console.error(e));
-          }
-
-          // Retrieve active session from localStorage and reconcile profile details
-          const savedSession = localStorage.getItem('dscps_current_user');
-          if (savedSession) {
-            const parsedSession = JSON.parse(savedSession);
-            const verifiedProfile = dbUsers.find(u => u.uid === parsedSession.uid);
-            if (verifiedProfile) {
-              setCurrentUser(verifiedProfile);
-            }
-          }
-        }
-      } catch (err) {
-        console.error("Error establishing synchronization link to MongoDB server:", err);
-      } finally {
-        setDbLoaded(true);
-      }
+  interface FirestoreErrorInfo {
+    error: string;
+    operationType: OperationType;
+    path: string | null;
+    authInfo: {
+      userId?: string | null;
+      email?: string | null;
+      emailVerified?: boolean | null;
+      isAnonymous?: boolean | null;
     }
+  }
 
-    loadAllStatesFromDb();
-  }, []);
+  const handleFirestoreError = (error: unknown, operationType: OperationType, path: string | null) => {
+    const errInfo: FirestoreErrorInfo = {
+      error: error instanceof Error ? error.message : String(error),
+      authInfo: {
+        userId: auth.currentUser?.uid,
+        email: auth.currentUser?.email,
+        emailVerified: auth.currentUser?.emailVerified,
+        isAnonymous: auth.currentUser?.isAnonymous,
+      },
+      operationType,
+      path
+    };
+    console.error('Firestore Error: ', JSON.stringify(errInfo));
+    throw new Error(JSON.stringify(errInfo));
+  };
 
-  // Background polling loop for seamless multi-device updates
+  // Connect and subscribe to dynamic state changes from Firebase Firestore in real-time
   useEffect(() => {
-    if (!dbLoaded) return;
+    const keys = ['siteConfig', 'rolePrivileges', 'users', 'boardMembers', 'announcements', 'gallery', 'articles', 'workloads'];
+    const unsubscribes: (() => void)[] = [];
+    const initialFetched: Record<string, boolean> = {};
 
-    let isActive = true;
-    const interval = setInterval(async () => {
-      try {
-        const response = await fetch('/api/state');
-        if (!response.ok) return;
-        const json = await response.json();
+    const handleSnapshot = (key: string, docSnap: any) => {
+      if (docSnap.exists()) {
+        const val = docSnap.data().data;
+        const serialized = JSON.stringify(val);
         
-        if (isActive && json.success && json.states) {
-          const states = json.states;
+        if (!isSavingRef.current[key] && lastSyncedRef.current[key] !== serialized) {
+          lastSyncedRef.current[key] = serialized;
 
-          if (states.siteConfig) {
-            const serialized = JSON.stringify(states.siteConfig);
-            if (lastSyncedRef.current.siteConfig !== serialized) {
-              lastSyncedRef.current.siteConfig = serialized;
-              setSiteConfig(states.siteConfig);
-            }
-          }
-          if (states.rolePrivileges) {
-            const serialized = JSON.stringify(states.rolePrivileges);
-            if (lastSyncedRef.current.rolePrivileges !== serialized) {
-              lastSyncedRef.current.rolePrivileges = serialized;
-              setRolePrivileges(states.rolePrivileges);
-            }
-          }
-          if (states.users) {
-            const serialized = JSON.stringify(states.users);
-            if (lastSyncedRef.current.users !== serialized) {
-              lastSyncedRef.current.users = serialized;
-              setUsers(states.users);
-              
-              // Sync current log user if updated in roster
-              const savedSession = localStorage.getItem('dscps_current_user');
-              if (savedSession) {
+          if (key === 'siteConfig') setSiteConfig(val);
+          else if (key === 'rolePrivileges') setRolePrivileges(val);
+          else if (key === 'users') {
+            setUsers(val);
+            // Reconcile current auth profile session if updated in roster list
+            const savedSession = localStorage.getItem('dscps_current_user');
+            if (savedSession) {
+              try {
                 const parsedSession = JSON.parse(savedSession);
-                const verifiedProfile = states.users.find((u: any) => u.uid === parsedSession.uid);
+                const verifiedProfile = val.find((u: any) => u.uid === parsedSession.uid);
                 if (verifiedProfile) {
                   setCurrentUser(verifiedProfile);
                 }
+              } catch (e) {
+                console.error("Local session reconciliation error:", e);
               }
             }
           }
-          if (states.boardMembers) {
-            const serialized = JSON.stringify(states.boardMembers);
-            if (lastSyncedRef.current.boardMembers !== serialized) {
-              lastSyncedRef.current.boardMembers = serialized;
-              setBoardMembers(states.boardMembers);
-            }
+          else if (key === 'boardMembers') setBoardMembers(val);
+          else if (key === 'announcements') setAnnouncements(val);
+          else if (key === 'gallery') setGallery(val);
+          else if (key === 'articles') setArticles(val);
+          else if (key === 'workloads') setWorkloads(val);
+        }
+      } else {
+        // Document does not exist in user's cloud db yet -> Seed with defaults
+        let initialData: any;
+        if (key === 'siteConfig') initialData = siteConfig;
+        else if (key === 'rolePrivileges') initialData = rolePrivileges;
+        else if (key === 'users') initialData = users;
+        else if (key === 'boardMembers') initialData = boardMembers;
+        else if (key === 'announcements') initialData = announcements;
+        else if (key === 'gallery') initialData = gallery;
+        else if (key === 'articles') initialData = articles;
+        else if (key === 'workloads') initialData = workloads;
+
+        const path = `app_state/${key}`;
+        setDoc(doc(db, 'app_state', key), { data: initialData })
+          .then(() => {
+            lastSyncedRef.current[key] = JSON.stringify(initialData);
+          })
+          .catch(err => {
+            console.error(`Error bootstrapping initial seed for ${key} inside Firestore:`, err);
+            handleFirestoreError(err, OperationType.WRITE, path);
+          });
+      }
+    };
+
+    keys.forEach(key => {
+      const unsub = onSnapshot(doc(db, 'app_state', key),
+        (snapshot) => {
+          handleSnapshot(key, snapshot);
+          initialFetched[key] = true;
+          
+          if (Object.keys(initialFetched).length >= keys.length) {
+            setDbLoaded(true);
           }
-          if (states.announcements) {
-            const serialized = JSON.stringify(states.announcements);
-            if (lastSyncedRef.current.announcements !== serialized) {
-              lastSyncedRef.current.announcements = serialized;
-              setAnnouncements(states.announcements);
-            }
+        },
+        (error) => {
+          console.warn(`Firestore subscription failed for state index key - ${key}:`, error);
+          initialFetched[key] = true;
+          if (Object.keys(initialFetched).length >= keys.length) {
+            setDbLoaded(true);
           }
-          if (states.gallery) {
-            const serialized = JSON.stringify(states.gallery);
-            if (lastSyncedRef.current.gallery !== serialized) {
-              lastSyncedRef.current.gallery = serialized;
-              setGallery(states.gallery);
-            }
-          }
-          if (states.articles) {
-            const serialized = JSON.stringify(states.articles);
-            if (lastSyncedRef.current.articles !== serialized) {
-              lastSyncedRef.current.articles = serialized;
-              setArticles(states.articles);
-            }
-          }
-          if (states.workloads) {
-            const serialized = JSON.stringify(states.workloads);
-            if (lastSyncedRef.current.workloads !== serialized) {
-              lastSyncedRef.current.workloads = serialized;
-              setWorkloads(states.workloads);
-            }
+          // If Firestore permissions block us temporarily (e.g., prior to sign in), we keep running on local state gracefully
+          try {
+            handleFirestoreError(error, OperationType.GET, `app_state/${key}`);
+          } catch (e) {
+            // Keep error logging non-fatal for client loading
           }
         }
-      } catch (err) {
-        console.warn("Background state polling encountered temporary glitch:", err);
-      }
-    }, 6000); // Check every 6 seconds
+      );
+      unsubscribes.push(unsub);
+    });
+
+    // Safeguard to guarantee DB layout loaded state within 3.5 seconds
+    const timeout = setTimeout(() => {
+      setDbLoaded(true);
+    }, 3500);
 
     return () => {
-      isActive = false;
-      clearInterval(interval);
+      unsubscribes.forEach(unsub => unsub());
+      clearTimeout(timeout);
     };
-  }, [dbLoaded]);
+  }, []);
 
-  // Save changes to MongoDB ONLY on client-side mutated updates (avoiding redundancy)
+  // Save changes to Firestore on client-side mutated updates
   useEffect(() => {
     localStorage.setItem('dscps_site_config', JSON.stringify(siteConfig));
     if (dbLoaded) {
       const strValue = JSON.stringify(siteConfig);
       if (lastSyncedRef.current.siteConfig !== strValue) {
         lastSyncedRef.current.siteConfig = strValue;
-        fetch('/api/state/siteConfig', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: siteConfig })
-        }).catch(err => console.error("Site configuration upload failed:", err));
+        isSavingRef.current.siteConfig = true;
+        const path = 'app_state/siteConfig';
+        setDoc(doc(db, 'app_state', 'siteConfig'), { data: siteConfig })
+          .then(() => {
+            setTimeout(() => { isSavingRef.current.siteConfig = false; }, 1000);
+          })
+          .catch(err => {
+            console.error("Site configuration upload failed to Firestore:", err);
+            isSavingRef.current.siteConfig = false;
+            handleFirestoreError(err, OperationType.WRITE, path);
+          });
       }
     }
   }, [siteConfig, dbLoaded]);
@@ -476,11 +412,17 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
       const strValue = JSON.stringify(rolePrivileges);
       if (lastSyncedRef.current.rolePrivileges !== strValue) {
         lastSyncedRef.current.rolePrivileges = strValue;
-        fetch('/api/state/rolePrivileges', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: rolePrivileges })
-        }).catch(err => console.error("Role privilege log upload failed:", err));
+        isSavingRef.current.rolePrivileges = true;
+        const path = 'app_state/rolePrivileges';
+        setDoc(doc(db, 'app_state', 'rolePrivileges'), { data: rolePrivileges })
+          .then(() => {
+            setTimeout(() => { isSavingRef.current.rolePrivileges = false; }, 1000);
+          })
+          .catch(err => {
+            console.error("Role privilege log upload failed to Firestore:", err);
+            isSavingRef.current.rolePrivileges = false;
+            handleFirestoreError(err, OperationType.WRITE, path);
+          });
       }
     }
   }, [rolePrivileges, dbLoaded]);
@@ -491,11 +433,17 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
       const strValue = JSON.stringify(users);
       if (lastSyncedRef.current.users !== strValue) {
         lastSyncedRef.current.users = strValue;
-        fetch('/api/state/users', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: users })
-        }).catch(err => console.error("Student registry upload failed:", err));
+        isSavingRef.current.users = true;
+        const path = 'app_state/users';
+        setDoc(doc(db, 'app_state', 'users'), { data: users })
+          .then(() => {
+            setTimeout(() => { isSavingRef.current.users = false; }, 1000);
+          })
+          .catch(err => {
+            console.error("Student registry upload failed to Firestore:", err);
+            isSavingRef.current.users = false;
+            handleFirestoreError(err, OperationType.WRITE, path);
+          });
       }
     }
   }, [users, dbLoaded]);
@@ -506,11 +454,17 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
       const strValue = JSON.stringify(boardMembers);
       if (lastSyncedRef.current.boardMembers !== strValue) {
         lastSyncedRef.current.boardMembers = strValue;
-        fetch('/api/state/boardMembers', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: boardMembers })
-        }).catch(err => console.error("Board profile roster upload failed:", err));
+        isSavingRef.current.boardMembers = true;
+        const path = 'app_state/boardMembers';
+        setDoc(doc(db, 'app_state', 'boardMembers'), { data: boardMembers })
+          .then(() => {
+            setTimeout(() => { isSavingRef.current.boardMembers = false; }, 1000);
+          })
+          .catch(err => {
+            console.error("Board profile roster upload failed to Firestore:", err);
+            isSavingRef.current.boardMembers = false;
+            handleFirestoreError(err, OperationType.WRITE, path);
+          });
       }
     }
   }, [boardMembers, dbLoaded]);
@@ -521,11 +475,17 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
       const strValue = JSON.stringify(announcements);
       if (lastSyncedRef.current.announcements !== strValue) {
         lastSyncedRef.current.announcements = strValue;
-        fetch('/api/state/announcements', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: announcements })
-        }).catch(err => console.error("Bulletin logs upload failed:", err));
+        isSavingRef.current.announcements = true;
+        const path = 'app_state/announcements';
+        setDoc(doc(db, 'app_state', 'announcements'), { data: announcements })
+          .then(() => {
+            setTimeout(() => { isSavingRef.current.announcements = false; }, 1000);
+          })
+          .catch(err => {
+            console.error("Bulletin logs upload failed to Firestore:", err);
+            isSavingRef.current.announcements = false;
+            handleFirestoreError(err, OperationType.WRITE, path);
+          });
       }
     }
   }, [announcements, dbLoaded]);
@@ -536,11 +496,17 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
       const strValue = JSON.stringify(gallery);
       if (lastSyncedRef.current.gallery !== strValue) {
         lastSyncedRef.current.gallery = strValue;
-        fetch('/api/state/gallery', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: gallery })
-        }).catch(err => console.error("Photographers corner gallery upload failed:", err));
+        isSavingRef.current.gallery = true;
+        const path = 'app_state/gallery';
+        setDoc(doc(db, 'app_state', 'gallery'), { data: gallery })
+          .then(() => {
+            setTimeout(() => { isSavingRef.current.gallery = false; }, 1000);
+          })
+          .catch(err => {
+            console.error("Photographers gallery upload failed to Firestore:", err);
+            isSavingRef.current.gallery = false;
+            handleFirestoreError(err, OperationType.WRITE, path);
+          });
       }
     }
   }, [gallery, dbLoaded]);
@@ -551,11 +517,17 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
       const strValue = JSON.stringify(articles);
       if (lastSyncedRef.current.articles !== strValue) {
         lastSyncedRef.current.articles = strValue;
-        fetch('/api/state/articles', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: articles })
-        }).catch(err => console.error("Editors corner articles upload failed:", err));
+        isSavingRef.current.articles = true;
+        const path = 'app_state/articles';
+        setDoc(doc(db, 'app_state', 'articles'), { data: articles })
+          .then(() => {
+            setTimeout(() => { isSavingRef.current.articles = false; }, 1000);
+          })
+          .catch(err => {
+            console.error("Editors news articles upload failed to Firestore:", err);
+            isSavingRef.current.articles = false;
+            handleFirestoreError(err, OperationType.WRITE, path);
+          });
       }
     }
   }, [articles, dbLoaded]);
@@ -566,11 +538,17 @@ export function DSCPSProvider({ children }: { children: ReactNode }) {
       const strValue = JSON.stringify(workloads);
       if (lastSyncedRef.current.workloads !== strValue) {
         lastSyncedRef.current.workloads = strValue;
-        fetch('/api/state/workloads', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: workloads })
-        }).catch(err => console.error("Workload list upload failed:", err));
+        isSavingRef.current.workloads = true;
+        const path = 'app_state/workloads';
+        setDoc(doc(db, 'app_state', 'workloads'), { data: workloads })
+          .then(() => {
+            setTimeout(() => { isSavingRef.current.workloads = false; }, 1000);
+          })
+          .catch(err => {
+            console.error("Workload log matrix upload failed to Firestore:", err);
+            isSavingRef.current.workloads = false;
+            handleFirestoreError(err, OperationType.WRITE, path);
+          });
       }
     }
   }, [workloads, dbLoaded]);
